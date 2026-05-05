@@ -1,4 +1,4 @@
-<img src="img/Screenshot 2026-05-05 145252-r55-primes.png" alt="Ramsey-Mandelbrot Crystal" width="1024px" align="center" />
+<img src="img/Screenshot 2026-05-05 145252-r55-primes.png" alt="Ramsey Crystal" width="1024px" align="center" />
 
 # Ramsey-Crystals
 
@@ -13,6 +13,18 @@ By applying a [generalized Scale Space Theory](https://en.wikipedia.org/wiki/Sca
 ### Live Demo
 
 <a href="https://codepen.io/your-work" target="blank">Codepen Demo available here</a>
+
+### Primes
+
+<img src="img/Screenshot 2026-05-05 145252-r55-primes.png" alt="Ramsey Crystal 55 Primes" width="1024px" align="center" />
+
+### Non-Primes
+
+<img src="img/Screenshot 2026-05-05 145231-r55-nonprimes.png" alt="Ramsey 55 Non-Primes Crystal" width="1024px" align="center" />
+
+### Combined
+
+<img src="img/Screenshot 2026-05-05 145259-r55-combined.png" alt="Ramsey 55 Combined Crystal" width="1024px" align="center" />
 
 ### For More
 

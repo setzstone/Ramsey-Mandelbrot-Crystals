@@ -13,3 +13,12 @@ By applying a [generalized Scale Space Theory](https://en.wikipedia.org/wiki/Sca
 ### Live Demo
 
 <a href="https://codepen.io/your-work" target="blank">Codepen Demo available here</a>
+
+### For More
+
+Please come subscribe to [/r/ScaleSpace](https://reddit.com/r/ScaleSpace)
+
+### Message Me
+
+[DM me on reddit](https://reddit.com/u/solidwhetstone)
+

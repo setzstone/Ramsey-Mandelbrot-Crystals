@@ -8,4 +8,4 @@ By applying a [generalized Scale Space Theory](https://en.wikipedia.org/wiki/Sca
 
 ### Live Demo
 
-<a href="https://codepen.io/your-work">Codepen Demo available here</a>
+<a href="https://codepen.io/your-work" target="blank">Codepen Demo available here</a>

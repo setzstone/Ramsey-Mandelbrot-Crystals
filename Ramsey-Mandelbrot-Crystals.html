@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, touch-action: manipulation">
+  <title>Ramsey Morphology – Variance & Moiré</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; background: #111122; touch-action: pan-x pan-y pinch-zoom; }
+    #info { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 6px 12px; border-radius: 5px; pointer-events: none; font-size: 13px; }
+    #ui-bar { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.85); color: white; border-top: 1px solid rgba(255,255,255,0.3); display: flex; flex-direction: column; max-height: 38vh; overflow-y: auto; transition: max-height 0.3s; }
+    #ui-bar.collapsed { max-height: 40px; overflow-y: hidden; }
+    #toggle-ui { background: #444; color: white; border: none; padding: 8px 12px; font-size: 16px; cursor: pointer; width: 100%; text-align: center; touch-action: manipulation; }
+    .controls-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 5px 4px; }
+    select, button { font-size: 12px; padding: 5px 8px; border-radius: 4px; border: none; background: #333; color: white; cursor: pointer; touch-action: manipulation; }
+    button.active { background: #0a84ff; }
+    #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; text-align: center; display: none; z-index: 10; }
+    #progress { width: 200px; height: 10px; background: #555; border-radius: 5px; margin-top: 10px; }
+    #progress-fill { width: 0%; height: 100%; background: #0f0; border-radius: 5px; }
+    #variance-overlay {
+      position: absolute; top: 40px; right: 10px;
+      background: rgba(0,0,0,0.8); color: white;
+      padding: 8px; border-radius: 5px;
+      font-size: 11px; max-height: 50vh; overflow-y: auto;
+      display: none; pointer-events: none;
+      white-space: pre-wrap; line-height: 1.3;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">Ramsey Morphology – variance & Moiré (<span id="activeTarget"></span>)</div>
+  <div id="variance-overlay"></div>
+  <div id="loading">
+    <div>Computing valid colorings...</div>
+    <div id="progress"><div id="progress-fill"></div></div>
+  </div>
+  <div id="ui-bar">
+    <button id="toggle-ui">▼ Controls</button>
+    <div id="controls-content">
+      <div class="controls-row">
+        <label for="ramseySelect">Target:</label>
+        <select id="ramseySelect">
+          <option value="3,3">R(3,3)</option>
+          <option value="3,4">R(3,4)</option>
+          <option value="4,4">R(4,4)</option>
+          <option value="4,5">R(4,5)</option>
+          <option value="5,5">R(5,5)</option>
+        </select>
+        <button id="recompute">Recompute</button>
+        <span style="margin:0 2px;">Shape:</span>
+        <button id="btnCylinder" class="active">Cyl</button>
+        <button id="btnPyramid">Pyr</button>
+        <button id="btnInverted">Inv</button>
+      </div>
+      <div class="controls-row">
+        <button id="btnHullRed" class="active">Red Hull</button>
+        <button id="btnHullBlue" class="active">Blue Hull</button>
+        <button id="btnSkinRed" class="active">Red Skin</button>
+        <button id="btnSkinBlue" class="active">Blue Skin</button>
+        <button id="btnRedLines" class="active">Red Ln</button>
+        <button id="btnBlueLines" class="active">Blue Ln</button>
+        <button id="btnConflict">Conflict</button>
+        <button id="btnRings" class="active">Rings</button>
+      </div>
+      <div class="controls-row">
+        <button id="btnLatticeRed" class="active">Red Lat</button>
+        <button id="btnLatticeBlue" class="active">Blue Lat</button>
+        <button id="btnGhosts" class="active">Ghosts</button>
+        <button id="btnBackdrop">Backdrop</button>
+        <button id="btnVariance">Variance</button>
+      </div>
+      <div class="controls-row">
+        <span style="font-size:12px;">Filter:</span>
+        <button id="btnFilterAll" class="active">All</button>
+        <button id="btnFilterPrimes">Primes</button>
+        <button id="btnFilterNonPrimes">Non‑primes</button>
+      </div>
+      <div class="controls-row">
+        <label for="focusSelect">Focus:</label>
+        <select id="focusSelect">
+          <option value="all">All</option>
+          <option value="red">Red only</option>
+          <option value="blue">Blue only</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.126.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.126.0/examples/jsm/" } }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ===================== SCENE SETUP =====================
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111122);
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
+    camera.position.set(8, 8, 15);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.1;
+    controls.target.set(0, 5, 0);
+    controls.update();
+    scene.add(new THREE.AmbientLight(0x404066));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(1, 1, 1);
+    scene.add(dirLight);
+
+    const backgroundGroup = new THREE.Group();
+    const ringsGroup = new THREE.Group();
+    const redHullGroup = new THREE.Group();
+    const blueHullGroup = new THREE.Group();
+    const redSkinGroup = new THREE.Group();
+    const blueSkinGroup = new THREE.Group();
+    const redEdgeGroup = new THREE.Group();
+    const blueEdgeGroup = new THREE.Group();
+    const conflictGroup = new THREE.Group();
+    const redLatticeGroup = new THREE.Group();
+    const blueLatticeGroup = new THREE.Group();
+    const ghostGroup = new THREE.Group();
+    const backdropGroup = new THREE.Group();
+    const allGroups = [backgroundGroup, ringsGroup, redHullGroup, blueHullGroup, redSkinGroup, blueSkinGroup, redEdgeGroup, blueEdgeGroup, conflictGroup, redLatticeGroup, blueLatticeGroup, ghostGroup, backdropGroup];
+    allGroups.forEach(g => scene.add(g));
+
+    // ===================== STATE =====================
+    let currentS = 3, currentT = 3;
+    let validColorings = [];
+    let threshold = 6;
+    let shapeMode = 'cylinder';
+    const baseRadius = 4.0;
+    const HULL_RESAMPLE = 64;
+
+    let showHullRed = true, showHullBlue = true;
+    let showSkinRed = true, showSkinBlue = true;
+    let showRedLines = true, showBlueLines = true;
+    let showConflict = false;
+    let showRings = true;
+    let showLatticeRed = true, showLatticeBlue = true;
+    let showGhosts = true;
+    let showBackdrop = false;
+    let showVariance = false;
+    let filterMode = 'all';
+    let focusMode = 'all';
+    let needsCameraReset = true;
+    let varianceData = [];
+
+    // ===================== PRIMALITY =====================
+    function isPrime(n) { if (n < 2) return false; if (n === 2) return true; if (n % 2 === 0) return false; for (let i = 3; i * i <= n; i += 2) { if (n % i === 0) return false; } return true; }
+    function layerPassesFilter(n) { if (filterMode === 'all') return true; if (filterMode === 'primes') return isPrime(n); if (filterMode === 'nonprimes') return !isPrime(n); return true; }
+
+    // ===================== RAMSEY COMPUTATION =====================
+    function combinations(arr, k) { const result = []; const f = (start, prefix) => { if (prefix.length === k) { result.push(prefix.slice()); return; } for (let i = start; i <= arr.length - k + prefix.length; i++) { prefix.push(arr[i]); f(i + 1, prefix); prefix.pop(); } }; f(0, []); return result; }
+    function hasForbidden(adj, s, t) { const n = adj.length; if (s <= n) { const subs = combinations([...Array(n).keys()], s); for (const sub of subs) { let allRed = true; for (let i = 0; i < sub.length; i++) { for (let j = i + 1; j < sub.length; j++) { if (adj[sub[i]][sub[j]] !== 0) { allRed = false; break; } } if (!allRed) break; } if (allRed) return true; } } if (t <= n) { const subs = combinations([...Array(n).keys()], t); for (const sub of subs) { let allBlue = true; for (let i = 0; i < sub.length; i++) { for (let j = i + 1; j < sub.length; j++) { if (adj[sub[i]][sub[j]] !== 1) { allBlue = false; break; } } if (!allBlue) break; } if (allBlue) return true; } } return false; }
+    function legrendeSymbol(a, p) { if (a % p === 0) return 0; for (let i = 1; i < p; i++) { if ((i * i) % p === a % p) return 1; } return -1; }
+    function paleyGraph(q) { const adj = Array(q).fill().map(() => Array(q).fill(0)); for (let i = 0; i < q; i++) { for (let j = i + 1; j < q; j++) { const diff = (i - j + q) % q; if (legrendeSymbol(diff, q) === 1) { adj[i][j] = adj[j][i] = 1; } else { adj[i][j] = adj[j][i] = 0; } } } return adj; }
+    function inducedSubgraph(adj, n) { return adj.slice(0, n).map(row => row.slice(0, n)); }
+    function r45CirculantGraph() { const n = 24; const firstRow = [0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1]; const adj = Array(n).fill().map(() => Array(n).fill(0)); for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) { const d = (j - i + n) % n; adj[i][j] = firstRow[d]; } } return adj; }
+    function r55CirculantGraph() { const n = 42; const connectionSet = new Set([1, 4, 10, 16, 17, 18, 27, 35]); const adj = Array(n).fill().map(() => Array(n).fill(0)); for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) { if (i === j) continue; const d = (j - i + n) % n; if (connectionSet.has(d) || connectionSet.has(n - d)) { adj[i][j] = 1; } else { adj[i][j] = 0; } } } return adj; }
+
+    function solveRamseyColoring(n, s, t, maxSteps = 200000) {
+      const edges = [];
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) edges.push([i, j]);
+      const adj = Array(n).fill().map(() => Array(n).fill(-1));
+      const redNei = Array(n).fill().map(() => ({}));
+      const blueNei = Array(n).fill().map(() => ({}));
+      const redCount = Array(n).fill(0), blueCount = Array(n).fill(0);
+      function wouldCreate(idx, color) {
+        const [a, b] = edges[idx];
+        adj[a][b] = adj[b][a] = color;
+        const nei = color === 0 ? redNei : blueNei;
+        const k = color === 0 ? s : t;
+        const common = [];
+        for (let v in nei[a]) { if (nei[b][v]) common.push(parseInt(v)); }
+        if (common.length >= k - 2) {
+          const comb = (start, pre) => {
+            if (pre.length === k - 2) {
+              const vertices = [a, b, ...pre];
+              for (let i = 0; i < vertices.length; i++) for (let j = i + 1; j < vertices.length; j++) if (adj[vertices[i]][vertices[j]] !== color) return false;
+              return true;
+            }
+            for (let i = start; i < common.length; i++) { pre.push(common[i]); if (comb(i + 1, pre)) return true; pre.pop(); }
+            return false;
+          };
+          if (comb(0, [])) { adj[a][b] = adj[b][a] = -1; return true; }
+        }
+        adj[a][b] = adj[b][a] = -1;
+        return false;
+      }
+      function backtrack(idx) {
+        if (idx === edges.length) return true;
+        const [i, j] = edges[idx];
+        if (!wouldCreate(idx, 0)) {
+          adj[i][j] = adj[j][i] = 0;
+          redNei[i][j] = true; redNei[j][i] = true;
+          redCount[i]++; redCount[j]++;
+          if (backtrack(idx + 1)) return true;
+          adj[i][j] = adj[j][i] = -1;
+          delete redNei[i][j]; delete redNei[j][i];
+          redCount[i]--; redCount[j]--;
+        }
+        if (!wouldCreate(idx, 1)) {
+          adj[i][j] = adj[j][i] = 1;
+          blueNei[i][j] = true; blueNei[j][i] = true;
+          blueCount[i]++; blueCount[j]++;
+          if (backtrack(idx + 1)) return true;
+          adj[i][j] = adj[j][i] = -1;
+          delete blueNei[i][j]; delete blueNei[j][i];
+          blueCount[i]--; blueCount[j]--;
+        }
+        return false;
+      }
+      if (backtrack(0)) { const result = Array(n).fill().map(() => Array(n).fill(0)); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) result[i][j] = adj[i][j]; return result; }
+      return null;
+    }
+
+    async function computeValidColorings(s, t, thresh, progressCb) {
+      const result = [];
+      if ((s === 3 && t === 3) || (s === 4 && t === 4)) {
+        const masterN = (s === 3 && t === 3) ? 5 : 17;
+        const master = paleyGraph(masterN);
+        for (let n = 2; n <= thresh; n++) {
+          if (n <= masterN) result.push({ n, adj: inducedSubgraph(master, n) });
+          else result.push({ n, adj: null });
+          if (progressCb) progressCb((n - 1) / (thresh - 1));
+          await new Promise(r => setTimeout(r, 0));
+        }
+      } else if (s === 4 && t === 5) {
+        const master = r45CirculantGraph();
+        for (let n = 2; n <= thresh; n++) {
+          if (n <= 24) result.push({ n, adj: inducedSubgraph(master, n) });
+          else result.push({ n, adj: null });
+          if (progressCb) progressCb((n - 1) / (thresh - 1));
+          await new Promise(r => setTimeout(r, 0));
+        }
+      } else if (s === 5 && t === 5) {
+        const master = r55CirculantGraph();
+        for (let n = 2; n <= 42; n++) {
+          result.push({ n, adj: inducedSubgraph(master, n) });
+          if (progressCb) progressCb((n - 1) / (thresh - 1));
+          await new Promise(r => setTimeout(r, 0));
+        }
+        for (let n = 43; n <= thresh; n++) {
+          result.push({ n, adj: null });
+          if (progressCb) progressCb((n - 1) / (thresh - 1));
+          await new Promise(r => setTimeout(r, 0));
+        }
+      } else {
+        for (let n = 2; n < thresh; n++) {
+          const adj = solveRamseyColoring(n, s, t);
+          result.push({ n, adj });
+          if (progressCb) progressCb((n - 1) / (thresh - 1));
+          await new Promise(r => setTimeout(r, 0));
+        }
+        result.push({ n: thresh, adj: null });
+        if (progressCb) progressCb(1);
+      }
+      return result;
+    }
+
+    // ===================== VISUALIZATION =====================
+    function radiusForN(n) { const norm = (n - 2) / Math.max(1, threshold - 2); if (shapeMode === 'cylinder') return baseRadius; if (shapeMode === 'pyramid') return baseRadius * (1 - norm * 0.9); if (shapeMode === 'inverted') return baseRadius * (0.2 + norm * 0.8); return baseRadius; }
+    function cross2D(a, b, c) { return (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x); }
+    function convexHull2D(points) { if (points.length < 3) return points.slice(); const sorted = points.slice().sort((a, b) => a.x - b.x || a.z - b.z); const leftMost = sorted[0]; const hull = []; let p = leftMost; do { hull.push(p); let q = sorted[0]; for (const r of sorted) { if (q === p || cross2D(p, q, r) < 0) q = r; } p = q; } while (p !== leftMost); return hull; }
+    function resampleHull(hull3D, numPoints) { if (hull3D.length < 3) return []; const lens = [0]; let total = 0; for (let i = 0; i < hull3D.length; i++) { const d = new THREE.Vector3().subVectors(hull3D[(i + 1) % hull3D.length], hull3D[i]).length(); total += d; lens.push(total); } const points = []; for (let i = 0; i < numPoints; i++) { const target = (i / numPoints) * total; let seg = 1; while (seg < lens.length && lens[seg] < target) seg++; const t = (target - lens[seg - 1]) / (lens[seg] - lens[seg - 1]); const p1 = hull3D[seg - 1]; const p2 = hull3D[seg % hull3D.length]; points.push(new THREE.Vector3().lerpVectors(p1, p2, t)); } return points; }
+    function clipPolygon(subj, clip) { let output = subj.slice(); for (let i = 0; i < clip.length; i++) { const e1 = clip[i], e2 = clip[(i + 1) % clip.length]; const input = output.slice(); output = []; for (let j = 0; j < input.length; j++) { const cur = input[j], prev = input[(j + input.length - 1) % input.length]; const curIn = cross2D(e1, e2, cur) >= 0, prevIn = cross2D(e1, e2, prev) >= 0; if (curIn) { if (!prevIn) { const denom = cross2D(e1, e2, cur) - cross2D(e1, e2, prev); if (Math.abs(denom) > 1e-9) { const u = cross2D(e1, e2, cur) / denom; output.push(new THREE.Vector3().lerpVectors(cur, prev, u)); } } output.push(cur); } else if (prevIn) { const denom = cross2D(e1, e2, cur) - cross2D(e1, e2, prev); if (Math.abs(denom) > 1e-9) { const u = cross2D(e1, e2, cur) / denom; output.push(new THREE.Vector3().lerpVectors(cur, prev, u)); } } } } return output; }
+    function clearAllGroups() { allGroups.forEach(g => { while (g.children.length) g.remove(g.children[0]); }); }
+
+    function hullVariance(hull3D) {
+      if (!hull3D || hull3D.length < 3) return null;
+      const dists = [];
+      for (let i = 0; i < hull3D.length; i++) { dists.push(hull3D[i].distanceTo(hull3D[(i+1)%hull3D.length])); }
+      const mean = dists.reduce((a,b)=>a+b,0)/dists.length;
+      const variance = dists.reduce((a,b)=>a+(b-mean)*(b-mean),0)/dists.length;
+      return { mean, variance };
+    }
+
+    function updateVarianceOverlay() {
+      const overlay = document.getElementById('variance-overlay');
+      if (!showVariance || varianceData.length === 0) { overlay.style.display = 'none'; return; }
+      overlay.style.display = 'block';
+      let text = 'Layer  RedVar  BlueVar\n';
+      for (const d of varianceData) {
+        if (!layerPassesFilter(d.n)) continue;
+        const rv = d.redVar !== null ? d.redVar.toFixed(4) : '  -   ';
+        const bv = d.blueVar !== null ? d.blueVar.toFixed(4) : '  -   ';
+        text += `n=${d.n.toString().padStart(2)}  ${rv}  ${bv}\n`;
+      }
+      overlay.textContent = text;
+    }
+
+    function drawStack(resetCamera = false) {
+      clearAllGroups();
+      if (validColorings.length === 0) return;
+
+      const radii = validColorings.map(l => radiusForN(l.n));
+      const ringMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.2, transparent: true });
+      const redHulls = [], blueHulls = [], redRawHulls = [], blueRawHulls = [];
+      varianceData = [];
+
+      for (let idx = 0; idx < validColorings.length; idx++) {
+        const layer = validColorings[idx];
+        const n = layer.n, rad = radii[idx], y = n, adj = layer.adj;
+        const visible = layerPassesFilter(n);
+
+        if (showRings && visible) {
+          const ringPts = [];
+          for (let j = 0; j <= 64; j++) { const angle = (j / 64) * Math.PI * 2; ringPts.push(new THREE.Vector3(rad * Math.cos(angle), y, rad * Math.sin(angle))); }
+          ringsGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPts), ringMat));
+        }
+
+        if (!adj) {
+          redHulls.push(null); blueHulls.push(null); redRawHulls.push(null); blueRawHulls.push(null);
+          if (showGhosts && visible) {
+            const ghostGeo = new THREE.CylinderGeometry(rad, rad, 0.12, 64);
+            const ghostMat = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: new THREE.Color(0x222222), shininess: 5, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+            const disc = new THREE.Mesh(ghostGeo, ghostMat);
+            disc.position.y = y;
+            ghostGroup.add(disc);
+          }
+          varianceData.push({ n, redVar: null, blueVar: null });
+          continue;
+        }
+
+        const nodePos = [];
+        for (let i = 0; i < n; i++) { const angle = (i / n) * Math.PI * 2; nodePos.push(new THREE.Vector3(rad * Math.cos(angle), y, rad * Math.sin(angle))); }
+
+        if (showBackdrop && visible) {
+          const allPairs = [];
+          for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) allPairs.push([nodePos[a], nodePos[b]]);
+          if (allPairs.length) {
+            const verts = [];
+            allPairs.forEach(([a, b]) => verts.push(a.x, a.y, a.z, b.x, b.y, b.z));
+            backdropGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(verts, 3)), new THREE.LineBasicMaterial({ color: 0x555555, opacity: 0.25, transparent: true })));
+          }
+        }
+
+        const redVertices = new Set(), blueVertices = new Set();
+        for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) { if (adj[a][b] === 0) { redVertices.add(a); redVertices.add(b); } else { blueVertices.add(a); blueVertices.add(b); } }
+
+        const createHullData = (vertSet) => {
+          if (vertSet.size < 3) return null;
+          const pts2D = [], pts3D = [];
+          for (let v of vertSet) { const p = nodePos[v]; pts2D.push({ x: p.x, z: p.z }); pts3D.push(p.clone()); }
+          const hull2D = convexHull2D(pts2D);
+          const hull3D = hull2D.map(p => { const orig = pts3D.find(q => Math.abs(q.x - p.x) < 1e-6 && Math.abs(q.z - p.z) < 1e-6); return orig ? orig.clone() : new THREE.Vector3(p.x, y, p.z); });
+          return { raw: hull3D, resampled: resampleHull(hull3D, HULL_RESAMPLE) };
+        };
+
+        const redData = createHullData(redVertices), blueData = createHullData(blueVertices);
+        const redRaw = redData ? redData.raw : null;
+        const blueRaw = blueData ? blueData.raw : null;
+        const redVarVal = redRaw ? hullVariance(redRaw).variance : null;
+        const blueVarVal = blueRaw ? hullVariance(blueRaw).variance : null;
+        varianceData.push({ n, redVar: redVarVal, blueVar: blueVarVal });
+
+        if (visible) {
+          if (redData) { redRawHulls.push({ y, points: redRaw }); redHulls.push({ y, points: redData.resampled, n }); }
+          else { redRawHulls.push(null); redHulls.push(null); }
+          if (blueData) { blueRawHulls.push({ y, points: blueRaw }); blueHulls.push({ y, points: blueData.resampled, n }); }
+          else { blueRawHulls.push(null); blueHulls.push(null); }
+        } else { redRawHulls.push(null); redHulls.push(null); blueRawHulls.push(null); blueHulls.push(null); }
+
+        if (showRedLines && visible) {
+          const redPairs = [];
+          for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (adj[a][b] === 0) redPairs.push([nodePos[a], nodePos[b]]);
+          if (redPairs.length) {
+            const verts = [];
+            redPairs.forEach(([a, b]) => verts.push(a.x, a.y, a.z, b.x, b.y, b.z));
+            redEdgeGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(verts, 3)), new THREE.LineBasicMaterial({ color: 0xff3333 })));
+          }
+        }
+        if (showBlueLines && visible) {
+          const bluePairs = [];
+          for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (adj[a][b] === 1) bluePairs.push([nodePos[a], nodePos[b]]);
+          if (bluePairs.length) {
+            const verts = [];
+            bluePairs.forEach(([a, b]) => verts.push(a.x, a.y, a.z, b.x, b.y, b.z));
+            blueEdgeGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(verts, 3)), new THREE.LineBasicMaterial({ color: 0x3388ff })));
+          }
+        }
+      }
+
+      const buildLattice = (hullsArray, material, group, show) => {
+        if (!show) return;
+        const valid = [];
+        for (const h of hullsArray) { if (h && h.points && h.points.length === HULL_RESAMPLE) valid.push(h); }
+        if (valid.length < 2) return;
+        for (let j = 0; j < HULL_RESAMPLE; j++) { const linePts = []; for (const h of valid) linePts.push(h.points[j].clone()); if (linePts.length >= 2) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(linePts), material)); }
+      };
+      buildLattice(redHulls, new THREE.LineBasicMaterial({ color: 0xff6666, opacity: 0.5, transparent: true }), redLatticeGroup, showLatticeRed);
+      buildLattice(blueHulls, new THREE.LineBasicMaterial({ color: 0x6688ff, opacity: 0.5, transparent: true }), blueLatticeGroup, showLatticeBlue);
+
+      const hullMatRed = new THREE.MeshPhongMaterial({ color: 0xff3333, emissive: new THREE.Color(0x330000), shininess: 20, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+      const hullMatBlue = new THREE.MeshPhongMaterial({ color: 0x3388ff, emissive: new THREE.Color(0x000033), shininess: 20, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+      const addHullShape = (rawHulls, mat, group, show) => {
+        if (!show) return;
+        for (const h of rawHulls) {
+          if (!h) continue;
+          const shape = new THREE.Shape();
+          const pts2 = h.points.map(p => new THREE.Vector2(p.x, p.z));
+          if (pts2.length < 3) continue;
+          shape.moveTo(pts2[0].x, pts2[0].y);
+          for (let i = 1; i < pts2.length; i++) shape.lineTo(pts2[i].x, pts2[i].y);
+          shape.closePath();
+          const geo = new THREE.ShapeGeometry(shape);
+          geo.rotateX(-Math.PI / 2);
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.y = h.y;
+          group.add(mesh);
+        }
+      };
+      addHullShape(redRawHulls, hullMatRed, redHullGroup, showHullRed);
+      addHullShape(blueRawHulls, hullMatBlue, blueHullGroup, showHullBlue);
+
+      if (showConflict) {
+        const conflictMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.9, transparent: true });
+        for (let i = 0; i < redRawHulls.length; i++) {
+          const rh = redRawHulls[i], bh = blueRawHulls[i];
+          if (!rh || !bh) continue;
+          const inter = clipPolygon(rh.points, bh.points);
+          if (inter.length >= 3) { const pts = inter.slice(); pts.push(inter[0].clone()); conflictGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), conflictMat)); }
+        }
+      }
+
+      const skinMatRed = new THREE.MeshPhongMaterial({ color: 0xff3333, emissive: new THREE.Color(0x220000), shininess: 10, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+      const skinMatBlue = new THREE.MeshPhongMaterial({ color: 0x3388ff, emissive: new THREE.Color(0x000022), shininess: 10, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+      const buildLoftedSkin = (hullsArray, mat, group, show) => {
+        if (!show) return;
+        const valid = [];
+        for (const h of hullsArray) { if (h && h.points && h.points.length === HULL_RESAMPLE) valid.push(h); }
+        if (valid.length < 2) return;
+        for (let i = 0; i < valid.length - 1; i++) {
+          const lower = valid[i].points, upper = valid[i + 1].points;
+          const verts = [], indices = [], N = HULL_RESAMPLE;
+          for (let j = 0; j < N; j++) { verts.push(lower[j].x, lower[j].y, lower[j].z); verts.push(upper[j].x, upper[j].y, upper[j].z); }
+          verts.push(lower[0].x, lower[0].y, lower[0].z); verts.push(upper[0].x, upper[0].y, upper[0].z);
+          for (let j = 0; j < N; j++) { const base = j * 2; indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2); }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+          geo.setIndex(indices);
+          geo.computeVertexNormals();
+          group.add(new THREE.Mesh(geo, mat));
+        }
+      };
+      buildLoftedSkin(redHulls, skinMatRed, redSkinGroup, showSkinRed);
+      buildLoftedSkin(blueHulls, skinMatBlue, blueSkinGroup, showSkinBlue);
+
+      console.table(varianceData.map(d => ({ n: d.n, prime: isPrime(d.n) ? 'Y' : '', redVar: d.redVar !== null ? d.redVar.toFixed(5) : '', blueVar: d.blueVar !== null ? d.blueVar.toFixed(5) : '' })));
+      updateVarianceOverlay();
+
+      applyFocusMode();
+
+      if (resetCamera) {
+        controls.target.set(0, threshold / 2, 0);
+        camera.position.set(baseRadius * 1.8, threshold / 2, baseRadius * 2.2);
+        controls.update();
+        needsCameraReset = false;
+      }
+    }
+
+    function applyFocusMode() {
+      const redOp = (focusMode === 'all' || focusMode === 'red') ? 1.0 : 0.08;
+      const blueOp = (focusMode === 'all' || focusMode === 'blue') ? 1.0 : 0.08;
+      const bgOp = (focusMode === 'all') ? 1.0 : 0.1;
+      const conflictOp = (focusMode === 'all') ? 1.0 : 0.1;
+      scaleOpacity(redHullGroup, redOp); scaleOpacity(blueHullGroup, blueOp);
+      scaleOpacity(redSkinGroup, redOp); scaleOpacity(blueSkinGroup, blueOp);
+      scaleOpacity(redLatticeGroup, redOp); scaleOpacity(blueLatticeGroup, blueOp);
+      scaleOpacity(redEdgeGroup, redOp); scaleOpacity(blueEdgeGroup, blueOp);
+      scaleOpacity(backgroundGroup, bgOp); scaleOpacity(ringsGroup, bgOp);
+      scaleOpacity(ghostGroup, bgOp); scaleOpacity(backdropGroup, bgOp);
+      scaleOpacity(conflictGroup, conflictOp);
+    }
+    function scaleOpacity(group, op) { group.traverse(child => { if (child.material) { const mats = Array.isArray(child.material) ? child.material : [child.material]; mats.forEach(m => m.opacity = op); } }); }
+
+    // ===================== UI & EVENTS =====================
+    const loadingDiv = document.getElementById('loading');
+    const progressFill = document.getElementById('progress-fill');
+    const sel = document.getElementById('ramseySelect');
+    const recomputeBtn = document.getElementById('recompute');
+    const btnCyl = document.getElementById('btnCylinder'), btnPyr = document.getElementById('btnPyramid'), btnInv = document.getElementById('btnInverted');
+    const btnHullR = document.getElementById('btnHullRed'), btnHullB = document.getElementById('btnHullBlue');
+    const btnSkinR = document.getElementById('btnSkinRed'), btnSkinB = document.getElementById('btnSkinBlue');
+    const btnRLines = document.getElementById('btnRedLines'), btnBLines = document.getElementById('btnBlueLines');
+    const btnConflict = document.getElementById('btnConflict'), btnRings = document.getElementById('btnRings');
+    const btnLatticeR = document.getElementById('btnLatticeRed'), btnLatticeB = document.getElementById('btnLatticeBlue');
+    const btnGhosts = document.getElementById('btnGhosts'), btnBackdrop = document.getElementById('btnBackdrop');
+    const btnVariance = document.getElementById('btnVariance');
+    const btnFilterAll = document.getElementById('btnFilterAll'), btnFilterPrimes = document.getElementById('btnFilterPrimes'), btnFilterNonPrimes = document.getElementById('btnFilterNonPrimes');
+    const focusSel = document.getElementById('focusSelect');
+    const activeSpan = document.getElementById('activeTarget');
+    const toggleUiBtn = document.getElementById('toggle-ui'), uiBar = document.getElementById('ui-bar');
+
+    toggleUiBtn.addEventListener('click', () => { uiBar.classList.toggle('collapsed'); toggleUiBtn.textContent = uiBar.classList.contains('collapsed') ? '▲ Controls' : '▼ Controls'; });
+
+    function setActiveShapeButton(mode) { [btnCyl, btnPyr, btnInv].forEach(b => b.classList.remove('active')); if (mode === 'cylinder') btnCyl.classList.add('active'); else if (mode === 'pyramid') btnPyr.classList.add('active'); else btnInv.classList.add('active'); }
+    function setActiveFilterButton(mode) { [btnFilterAll, btnFilterPrimes, btnFilterNonPrimes].forEach(b => b.classList.remove('active')); if (mode === 'all') btnFilterAll.classList.add('active'); else if (mode === 'primes') btnFilterPrimes.classList.add('active'); else if (mode === 'nonprimes') btnFilterNonPrimes.classList.add('active'); }
+
+    async function recompute() {
+      const [s, t] = sel.value.split(',').map(Number);
+      currentS = s; currentT = t;
+      const thresholds = { '3,3': 6, '3,4': 9, '4,4': 18, '4,5': 25, '5,5': 48 };
+      threshold = thresholds[sel.value] || 18;
+      activeSpan.textContent = `R(${s},${t}) up to ${threshold}`;
+      loadingDiv.style.display = 'block'; progressFill.style.width = '0%';
+      validColorings = await computeValidColorings(s, t, threshold, (prog) => { progressFill.style.width = Math.floor(prog * 100) + '%'; });
+      loadingDiv.style.display = 'none';
+      needsCameraReset = true;
+      drawStack(true);
+    }
+
+    recomputeBtn.addEventListener('click', recompute);
+    sel.addEventListener('change', recompute);
+
+    btnCyl.addEventListener('click', () => { shapeMode = 'cylinder'; setActiveShapeButton('cylinder'); drawStack(false); });
+    btnPyr.addEventListener('click', () => { shapeMode = 'pyramid'; setActiveShapeButton('pyramid'); drawStack(false); });
+    btnInv.addEventListener('click', () => { shapeMode = 'inverted'; setActiveShapeButton('inverted'); drawStack(false); });
+
+    btnHullR.addEventListener('click', () => { showHullRed = !showHullRed; btnHullR.classList.toggle('active', showHullRed); drawStack(false); });
+    btnHullB.addEventListener('click', () => { showHullBlue = !showHullBlue; btnHullB.classList.toggle('active', showHullBlue); drawStack(false); });
+    btnSkinR.addEventListener('click', () => { showSkinRed = !showSkinRed; btnSkinR.classList.toggle('active', showSkinRed); drawStack(false); });
+    btnSkinB.addEventListener('click', () => { showSkinBlue = !showSkinBlue; btnSkinB.classList.toggle('active', showSkinBlue); drawStack(false); });
+    btnRLines.addEventListener('click', () => { showRedLines = !showRedLines; btnRLines.classList.toggle('active', showRedLines); drawStack(false); });
+    btnBLines.addEventListener('click', () => { showBlueLines = !showBlueLines; btnBLines.classList.toggle('active', showBlueLines); drawStack(false); });
+    btnConflict.addEventListener('click', () => { showConflict = !showConflict; btnConflict.classList.toggle('active', showConflict); drawStack(false); });
+    btnRings.addEventListener('click', () => { showRings = !showRings; btnRings.classList.toggle('active', showRings); drawStack(false); });
+    btnLatticeR.addEventListener('click', () => { showLatticeRed = !showLatticeRed; btnLatticeR.classList.toggle('active', showLatticeRed); drawStack(false); });
+    btnLatticeB.addEventListener('click', () => { showLatticeBlue = !showLatticeBlue; btnLatticeB.classList.toggle('active', showLatticeBlue); drawStack(false); });
+    btnGhosts.addEventListener('click', () => { showGhosts = !showGhosts; btnGhosts.classList.toggle('active', showGhosts); drawStack(false); });
+    btnBackdrop.addEventListener('click', () => { showBackdrop = !showBackdrop; btnBackdrop.classList.toggle('active', showBackdrop); drawStack(false); });
+    btnVariance.addEventListener('click', () => { showVariance = !showVariance; btnVariance.classList.toggle('active', showVariance); updateVarianceOverlay(); });
+
+    btnFilterAll.addEventListener('click', () => { filterMode = 'all'; setActiveFilterButton('all'); drawStack(false); });
+    btnFilterPrimes.addEventListener('click', () => { filterMode = 'primes'; setActiveFilterButton('primes'); drawStack(false); });
+    btnFilterNonPrimes.addEventListener('click', () => { filterMode = 'nonprimes'; setActiveFilterButton('nonprimes'); drawStack(false); });
+
+    focusSel.addEventListener('change', () => { focusMode = focusSel.value; applyFocusMode(); });
+
+    window.addEventListener('load', recompute);
+
+    function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+    animate();
+    window.addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+  </script>
+</body>
+</html>

@@ -6,6 +6,10 @@
 
 By applying a [generalized Scale Space Theory](https://en.wikipedia.org/wiki/Scale_space) to Ramsey numbers, we can treat each layer like a [coarse graining](https://en.wikipedia.org/wiki/Coarse-grained_modeling) and stack them to see the cross-scale structure. By doing so, looking at the structure from below (lowest number), the familiar [Mandelbrot structure](https://en.wikipedia.org/wiki/Mandelbrot_set) becomes visible.
 
+### Video
+
+[<img src="img/play.png" alt="Ramsey-Mandelbrot Crystal" width="1024px" align="center" target="blank" />](https://youtu.be/hvNb4J4j07A)
+
 ### Live Demo
 
 <a href="https://codepen.io/your-work" target="blank">Codepen Demo available here</a>
